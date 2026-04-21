@@ -1,39 +1,33 @@
-import os
-import psutil
-from wakeonlan import send_magic_packet
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
+import os
 
-TOKEN = "8089393760:AAFCTCKWePv3Ihc34AroLHr0BUmouC2Mwvo"
+TOKEN = os.getenv("TOKEN")
 USER_ID = 1073348110
 
-PC_IP = "192.168.0.107"
-PC_MAC = "9C:6B:00:4C:FA:B3"
-BROADCAST_IP = "192.168.0.255"
+API_URL = "https://ngrok.com/docs/errors/err_ngrok_4018"  # <-- встав сюди свій ngrok
 
-BASE_DIR = r"C:\Users\Kwizixi\Desktop"
 last_action = "Нема дій"
 
 
 # ---------------- STATUS ----------------
 
-def is_online():
-    return os.system(f"ping -n 1 -w 700 {PC_IP} > nul") == 0
-
-
 def stats():
-    return (
-        psutil.cpu_percent(),
-        psutil.virtual_memory().percent,
-        psutil.disk_usage("C:\\").percent
-    )
+    try:
+        r = requests.get(f"{API_URL}/status", timeout=3).json()
+        return r["cpu"], r["ram"], r["disk"], True
+    except:
+        return 0, 0, 0, False
 
 
 # ---------------- MENU ----------------
 
 def menu():
-    status = "🟢 Онлайн" if is_online() else "🔴 Офлайн"
-    cpu, ram, disk = stats()
+    global last_action
+
+    cpu, ram, disk, online = stats()
+    status = "🟢 Онлайн" if online else "🔴 Офлайн"
 
     text = f"""
 🖥 CONTROL PANEL
@@ -53,60 +47,10 @@ def menu():
         [InlineKeyboardButton("⛔ Вимкнути ПК", callback_data="shutdown")],
         [InlineKeyboardButton("🔁 Перезавантажити ПК", callback_data="restart")],
 
-        [InlineKeyboardButton("🎮 Steam", callback_data="steam")],
-        [InlineKeyboardButton("📋 Процеси", callback_data="list")],
-        [InlineKeyboardButton("📁 Файли", callback_data="files")]
+        [InlineKeyboardButton("🎮 Steam", callback_data="steam")]
     ])
 
     return text, kb
-
-
-# ---------------- PROCESSES ----------------
-
-def get_processes():
-    return list(set([
-        p.info['name']
-        for p in psutil.process_iter(['name'])
-        if p.info['name']
-    ]))[:12]
-
-
-def kill_process(name):
-    for p in psutil.process_iter():
-        try:
-            if p.name().lower() == name.lower():
-                p.kill()
-        except:
-            pass
-
-
-def process_keyboard():
-    buttons = [[InlineKeyboardButton(f"❌ {p}", callback_data=f"kill|{p}")] for p in get_processes()]
-    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="back")])
-    return InlineKeyboardMarkup(buttons)
-
-
-# ---------------- FILES ----------------
-
-def file_keyboard(path):
-    buttons = []
-
-    parent = os.path.dirname(path)
-    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"cd|{parent}")])
-
-    try:
-        for i in os.listdir(path):
-            full = os.path.join(path, i)
-            if os.path.isdir(full):
-                buttons.append([InlineKeyboardButton("📁 " + i, callback_data=f"cd|{full}")])
-            else:
-                buttons.append([InlineKeyboardButton("📄 " + i, callback_data=f"file|{full}")])
-    except:
-        pass
-
-    buttons.append([InlineKeyboardButton("🏠 Додому", callback_data=f"cd|{BASE_DIR}")])
-
-    return InlineKeyboardMarkup(buttons)
 
 
 # ---------------- START ----------------
@@ -142,63 +86,42 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, kb = menu()
         await q.edit_message_text(text, reply_markup=kb)
 
-    # ⚡ wake
+    # ⚡ wake (wake-on-lan)
     elif d == "wake":
-        send_magic_packet(PC_MAC, ip_address=BROADCAST_IP)
-        last_action = "ПК увімкнено"
+        last_action = "Спроба увімкнення (WOL)"
         text, kb = menu()
         await q.edit_message_text(text, reply_markup=kb)
 
     # ⛔ shutdown
     elif d == "shutdown":
-        os.system("shutdown /s /t 0")
-        last_action = "ПК вимкнено"
+        try:
+            requests.get(f"{API_URL}/shutdown")
+            last_action = "ПК вимкнено"
+        except:
+            last_action = "Помилка вимкнення"
+
         text, kb = menu()
         await q.edit_message_text(text, reply_markup=kb)
 
     # 🔁 restart
     elif d == "restart":
-        os.system("shutdown /r /t 0")
-        last_action = "ПК перезавантажено"
+        try:
+            requests.get(f"{API_URL}/restart")
+            last_action = "ПК перезавантажено"
+        except:
+            last_action = "Помилка рестарту"
+
         text, kb = menu()
         await q.edit_message_text(text, reply_markup=kb)
 
     # 🎮 steam
     elif d == "steam":
-        os.system("start steam://open/main")
-        last_action = "Steam запущено"
-        text, kb = menu()
-        await q.edit_message_text(text, reply_markup=kb)
-
-    # 📋 processes
-    elif d == "list":
-        last_action = "Процеси"
-        await q.edit_message_text("📋 Процеси:", reply_markup=process_keyboard())
-
-    elif d.startswith("kill|"):
-        name = d.split("|")[1]
-        kill_process(name)
-        last_action = f"Закрито {name}"
-        await q.edit_message_text("📋 Процеси:", reply_markup=process_keyboard())
-
-    # 📁 files
-    elif d == "files":
-        last_action = "Файли"
-        await q.edit_message_text("📁 Файли:", reply_markup=file_keyboard(BASE_DIR))
-
-    elif d.startswith("cd|"):
-        path = d.split("|", 1)[1]
-        await q.edit_message_text(f"📁 {path}", reply_markup=file_keyboard(path))
-
-    elif d.startswith("file|"):
-        path = d.split("|", 1)[1]
         try:
-            await q.message.reply_document(open(path, "rb"))
+            requests.get(f"{API_URL}/steam")
+            last_action = "Steam запущено"
         except:
-            await q.message.reply_text("❌ Не вдалося відкрити файл")
+            last_action = "Помилка запуску Steam"
 
-    # ⬅️ back
-    elif d == "back":
         text, kb = menu()
         await q.edit_message_text(text, reply_markup=kb)
 
@@ -210,5 +133,5 @@ app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(button))
 
-print("🟢 CONTROL PANEL RUNNING...")
+print("🟢 BOT RUNNING...")
 app.run_polling()
