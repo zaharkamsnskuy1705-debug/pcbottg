@@ -7,29 +7,34 @@ USER_ID = 1073348110
 
 
 def menu():
-    kb = InlineKeyboardMarkup([
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 Статус", callback_data="refresh")],
         [InlineKeyboardButton("⛔ Вимкнути", callback_data="shutdown")],
         [InlineKeyboardButton("🔁 Рестарт", callback_data="restart")],
         [InlineKeyboardButton("🎮 Steam", callback_data="steam")]
     ])
-    return "🖥 CONTROL PANEL", kb
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != USER_ID:
         return
 
-    text, kb = menu()
-    await update.message.reply_text(text, reply_markup=kb)
+    await update.message.reply_text("🖥 CONTROL PANEL", reply_markup=menu())
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    query = update.callback_query
+    await query.answer()
 
-    # просто підтвердження
-    await q.edit_message_text(f"Команда: {q.data}")
+    command = query.data
+
+    # відправляємо команду як текст агенту
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text=f"/{command}"
+    )
+
+    await query.edit_message_text(f"✅ Відправлено: {command}")
 
 
 app = ApplicationBuilder().token(TOKEN).build()
