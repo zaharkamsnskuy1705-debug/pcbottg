@@ -1,4 +1,5 @@
-python-telegram-bot==20.7
-psutil
-wakeonlan
+python-telegram-bot
+fastapi
+uvicorn
 requests
+psutil
