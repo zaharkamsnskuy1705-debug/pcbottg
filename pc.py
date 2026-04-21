@@ -1,42 +1,60 @@
 import os
 import psutil
-from wakeonlan import send_magic_packet
+import platform
+import subprocess
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-TOKEN = os.getenv("TOKEN")  # 🔐 токен через Railway
+TOKEN = os.getenv("TOKEN")
 USER_ID = 1073348110
 
 PC_IP = "192.168.0.107"
-PC_MAC = "9C:6B:00:4C:FA:B3"
-BROADCAST_IP = "192.168.0.255"
 
-BASE_DIR = r"C:\Users\Kwizixi\Desktop"
 last_action = "Нема дій"
 
 
-# ---------------- STATUS ----------------
+# ---------------- SAFE ----------------
+
+def safe_run(cmd):
+    try:
+        subprocess.Popen(cmd, shell=True)
+    except Exception as e:
+        print("CMD ERROR:", e)
+
 
 def is_online():
-    return os.system(f"ping -c 1 -W 1 {PC_IP} > /dev/null") == 0
+    try:
+        param = "-n" if platform.system().lower() == "windows" else "-c"
+        result = subprocess.run(
+            ["ping", param, "1", PC_IP],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return result.returncode == 0
+    except:
+        return False
 
 
 def stats():
-    return (
-        psutil.cpu_percent(),
-        psutil.virtual_memory().percent,
-        psutil.disk_usage("/").percent
-    )
+    try:
+        return (
+            psutil.cpu_percent(),
+            psutil.virtual_memory().percent,
+            psutil.disk_usage("/").percent
+        )
+    except:
+        return (0, 0, 0)
 
 
 # ---------------- MENU ----------------
 
 def menu():
-    status = "🟢 Онлайн" if is_online() else "🔴 Офлайн"
-    cpu, ram, disk = stats()
+    try:
+        status = "🟢 Онлайн" if is_online() else "🔴 Офлайн"
+        cpu, ram, disk = stats()
 
-    text = f"""
+        text = f"""
 🖥 CONTROL PANEL
 
 📡 Статус: {status}
@@ -47,65 +65,19 @@ def menu():
 🧾 Остання дія: {last_action}
 """
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Оновити", callback_data="refresh")],
-        [InlineKeyboardButton("⚡ Увімкнути ПК", callback_data="wake")],
-        [InlineKeyboardButton("⛔ Вимкнути ПК", callback_data="shutdown")],
-        [InlineKeyboardButton("🔁 Перезавантажити ПК", callback_data="restart")],
-        [InlineKeyboardButton("🎮 Steam", callback_data="steam")],
-        [InlineKeyboardButton("📋 Процеси", callback_data="list")],
-        [InlineKeyboardButton("📁 Файли", callback_data="files")]
-    ])
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Оновити", callback_data="refresh")],
+            [InlineKeyboardButton("⚡ Wake", callback_data="wake")],
+            [InlineKeyboardButton("⛔ Shutdown", callback_data="shutdown")],
+            [InlineKeyboardButton("🔁 Restart", callback_data="restart")],
+            [InlineKeyboardButton("🎮 Steam", callback_data="steam")],
+        ])
 
-    return text, kb
+        return text, kb
 
-
-# ---------------- PROCESSES ----------------
-
-def get_processes():
-    return list(set([
-        p.info['name']
-        for p in psutil.process_iter(['name'])
-        if p.info['name']
-    ]))[:12]
-
-
-def kill_process(name):
-    for p in psutil.process_iter():
-        try:
-            if p.name().lower() == name.lower():
-                p.kill()
-        except:
-            pass
-
-
-def process_keyboard():
-    buttons = [[InlineKeyboardButton(f"❌ {p}", callback_data=f"kill|{p}")] for p in get_processes()]
-    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="back")])
-    return InlineKeyboardMarkup(buttons)
-
-
-# ---------------- FILES ----------------
-
-def file_keyboard(path):
-    buttons = []
-
-    parent = os.path.dirname(path)
-    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"cd|{parent}")])
-
-    try:
-        for i in os.listdir(path):
-            full = os.path.join(path, i)
-            if os.path.isdir(full):
-                buttons.append([InlineKeyboardButton("📁 " + i, callback_data=f"cd|{full}")])
-            else:
-                buttons.append([InlineKeyboardButton("📄 " + i, callback_data=f"file|{full}")])
-    except:
-        pass
-
-    buttons.append([InlineKeyboardButton("🏠 Додому", callback_data=f"cd|{BASE_DIR}")])
-
-    return InlineKeyboardMarkup(buttons)
+    except Exception as e:
+        print("MENU ERROR:", e)
+        return "⚠️ Помилка меню", None
 
 
 # ---------------- START ----------------
@@ -113,93 +85,71 @@ def file_keyboard(path):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global last_action
 
-    if update.effective_user.id != USER_ID:
-        return
+    try:
+        if update.effective_user.id != USER_ID:
+            return
 
-    last_action = "Панель відкрита"
+        last_action = "Панель відкрита"
 
-    text, kb = menu()
-    await update.message.reply_text(text, reply_markup=kb)
+        text, kb = menu()
+        await update.message.reply_text(text, reply_markup=kb)
+
+    except Exception as e:
+        print("START ERROR:", e)
 
 
-# ---------------- BUTTONS ----------------
+# ---------------- BUTTON ----------------
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global last_action
 
-    q = update.callback_query
+    try:
+        q = update.callback_query
 
-    if q.from_user.id != USER_ID:
-        await q.answer("Нема доступу")
-        return
+        if q.from_user.id != USER_ID:
+            await q.answer("Нема доступу")
+            return
 
-    await q.answer()
-    d = q.data
+        await q.answer()
+        d = q.data
 
-    if d == "refresh":
+        if d == "refresh":
+            text, kb = menu()
+            await q.edit_message_text(text, reply_markup=kb)
+
+        elif d == "wake":
+            last_action = "Wake signal"
+        
+        elif d == "shutdown":
+            safe_run("shutdown /s /t 0")
+            last_action = "Shutdown (може не працювати на Railway)"
+
+        elif d == "restart":
+            safe_run("shutdown /r /t 0")
+            last_action = "Restart (може не працювати)"
+
+        elif d == "steam":
+            safe_run("start steam://open/main")
+            last_action = "Steam (тільки Windows)"
+
         text, kb = menu()
         await q.edit_message_text(text, reply_markup=kb)
 
-    elif d == "wake":
-        send_magic_packet(PC_MAC, ip_address=BROADCAST_IP)
-        last_action = "ПК увімкнено"
-        text, kb = menu()
-        await q.edit_message_text(text, reply_markup=kb)
-
-    elif d == "shutdown":
-        os.system("shutdown /s /t 0")
-        last_action = "ПК вимкнено"
-        text, kb = menu()
-        await q.edit_message_text(text, reply_markup=kb)
-
-    elif d == "restart":
-        os.system("shutdown /r /t 0")
-        last_action = "ПК перезавантажено"
-        text, kb = menu()
-        await q.edit_message_text(text, reply_markup=kb)
-
-    elif d == "steam":
-        os.system("start steam://open/main")
-        last_action = "Steam запущено"
-        text, kb = menu()
-        await q.edit_message_text(text, reply_markup=kb)
-
-    elif d == "list":
-        last_action = "Процеси"
-        await q.edit_message_text("📋 Процеси:", reply_markup=process_keyboard())
-
-    elif d.startswith("kill|"):
-        name = d.split("|")[1]
-        kill_process(name)
-        last_action = f"Закрито {name}"
-        await q.edit_message_text("📋 Процеси:", reply_markup=process_keyboard())
-
-    elif d == "files":
-        last_action = "Файли"
-        await q.edit_message_text("📁 Файли:", reply_markup=file_keyboard(BASE_DIR))
-
-    elif d.startswith("cd|"):
-        path = d.split("|", 1)[1]
-        await q.edit_message_text(f"📁 {path}", reply_markup=file_keyboard(path))
-
-    elif d.startswith("file|"):
-        path = d.split("|", 1)[1]
-        try:
-            await q.message.reply_document(open(path, "rb"))
-        except:
-            await q.message.reply_text("❌ Не вдалося відкрити файл")
-
-    elif d == "back":
-        text, kb = menu()
-        await q.edit_message_text(text, reply_markup=kb)
+    except Exception as e:
+        print("BUTTON ERROR:", e)
 
 
 # ---------------- RUN ----------------
 
-app = ApplicationBuilder().token(TOKEN).build()
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button))
 
-print("🟢 CONTROL PANEL RUNNING...")
-app.run_polling()
+    print("🟢 BOT STABLE RUNNING...")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
